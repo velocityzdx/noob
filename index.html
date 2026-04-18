@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Troller Controller</title>
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Styles -->
+    <link rel="stylesheet" href="style.css">
+    <!-- MQTT.js -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header>
+            <div class="logo">
+                <i class="fa-solid fa-satellite-dish"></i> TROLLER<span class="highlight">LINK</span>
+            </div>
+            <div id="connectionStatus" class="status-indicator disconnected"></div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main>
+            <!-- Screen Viewer -->
+            <section id="screenView" class="panel screen-panel">
+                <div class="panel-header">
+                    <h2><i class="fa-solid fa-desktop"></i> Live Monitor</h2>
+                    <button id="btnToggleScreen" class="btn primary-btn"><i class="fa-solid fa-play"></i> Start</button>
+                </div>
+                <div class="screen-container">
+                    <img id="liveScreen" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Screen feed" />
+                    <div id="screenOverlay" class="overlay">No Signal</div>
+                </div>
+            </section>
+
+            <!-- Navigation Tabs -->
+            <nav class="tabs">
+                <button class="tab-btn active" data-tab="cmd"><i class="fa-solid fa-terminal"></i> Terminal</button>
+                <button class="tab-btn" data-tab="tasks"><i class="fa-solid fa-list-check"></i> Tasks</button>
+                <button class="tab-btn" data-tab="keyboard"><i class="fa-solid fa-keyboard"></i> Keyboard</button>
+            </nav>
+
+            <!-- Terminal Tab -->
+            <section id="cmd" class="panel tab-content active">
+                <div class="terminal-container">
+                    <div id="terminalOutput" class="terminal-output"></div>
+                    <div class="terminal-input-row">
+                        <span class="prompt">PS></span>
+                        <input type="text" id="cmdInput" placeholder="Enter command..." autocomplete="off">
+                        <button id="btnSendCmd" class="btn icon-btn"><i class="fa-solid fa-paper-plane"></i></button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tasks Tab -->
+            <section id="tasks" class="panel tab-content" style="display: none;">
+                <div class="task-controls">
+                    <button id="btnRefreshTasks" class="btn"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                    <div class="start-task-row">
+                        <input type="text" id="newTaskInput" placeholder="notepad.exe">
+                        <button id="btnStartTask" class="btn primary-btn"><i class="fa-solid fa-rocket"></i> Start</button>
+                    </div>
+                </div>
+                <ul id="taskList" class="task-list">
+                    <!-- Tasks will populate here -->
+                </ul>
+            </section>
+
+            <!-- Keyboard Tab -->
+            <section id="keyboard" class="panel tab-content" style="display: none;">
+                <div class="keyboard-overlay">
+                    <div class="key-row">
+                        <button class="vkey" data-key="{ESC}">ESC</button>
+                        <button class="vkey" data-key="{F1}">F1</button>
+                        <button class="vkey" data-key="{F5}">F5</button>
+                        <button class="vkey" data-key="{TAB}">TAB</button>
+                    </div>
+                    <div class="key-row">
+                        <button class="vkey" data-key="^c">CTRL+C</button>
+                        <button class="vkey" data-key="^v">CTRL+V</button>
+                        <button class="vkey" data-key="%{F4}">ALT+F4</button>
+                    </div>
+                    <div class="key-row">
+                        <button class="vkey" data-key="{LWIN}">WIN</button>
+                        <button class="vkey" data-key="{DOWN}"><i class="fa-solid fa-arrow-down"></i></button>
+                        <button class="vkey" data-key="{UP}"><i class="fa-solid fa-arrow-up"></i></button>
+                        <button class="vkey" data-key="{ENTER}">ENTER</button>
+                    </div>
+                    <div class="key-row full">
+                        <input type="text" id="textInput" placeholder="Type text directly...">
+                        <button id="btnSendText" class="btn primary-btn">Send</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
