@@ -1,0 +1,6 @@
+@TrollerRelay_HostAddress = http://localhost:5049
+
+GET {{TrollerRelay_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
